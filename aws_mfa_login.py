@@ -120,7 +120,7 @@ def print_error(msg: str):
 
 
 def print_warning(msg: str):
-    print(f"{Colors.YELLOW}⚠ {msg}{Colors.ENDC}")
+    print(f"{Colors.RED}⚠ {msg}{Colors.ENDC}")
     logger.warning(msg)
 
 
@@ -241,8 +241,10 @@ def check_key_age(credentials_data: Dict, long_term_profile: str) -> Optional[in
             print_warning(f"Current key in use: {access_key_id}")
             for key in other_keys:
                 status = key.get('Status', 'Unknown')
+                # Display "Deactivated" instead of AWS's "Inactive" for clarity
+                display_status = "Deactivated" if status == "Inactive" else status
                 key_id = key['AccessKeyId']
-                print_warning(f"  → Extra key: {key_id} (Status: {status})")
+                print_warning(f"  → Extra key: {key_id} (Status: {display_status})")
             logger.warning(f"User has {len(all_keys)} access keys, other keys: {[k['AccessKeyId'] for k in other_keys]}")
             
             # Offer to manage extra keys
@@ -261,7 +263,7 @@ def check_key_age(credentials_data: Dict, long_term_profile: str) -> Optional[in
                     
                     if action == "deactivate":
                         if status == "Inactive":
-                            print_info(f"Key {key_id} is already inactive.")
+                            print_info(f"Key {key_id} is already deactivated.")
                         else:
                             confirm = input(f"  Type 'deactivate' again to confirm: ").strip().lower()
                             if confirm == "deactivate":
