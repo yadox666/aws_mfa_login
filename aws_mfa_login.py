@@ -35,6 +35,7 @@ except ImportError:
 
 AWS_CREDENTIALS_FILE = Path.home() / ".aws" / "credentials"
 AWS_CONFIG_FILE = Path.home() / ".aws" / "config"
+AWS_DEACTIVATED_KEYS_FILE = Path.home() / ".aws" / "credentials.deactivated"
 LONG_TERM_SUFFIX = "-long-term"
 DEFAULT_SESSION_DURATION = 43200  # 12 hours
 OUTPUT_DIR = Path(__file__).parent / "output"
@@ -199,6 +200,180 @@ def get_mfa_serial(profile: str) -> Optional[str]:
     return None
 
 
+def backup_deactivated_key(profile: str, access_key_id: str, secret_access_key: str):
+    """Backup a deactivated key to the credentials.deactivated file.
+    
+    Args:
+        profile: The profile name (e.g., 'prod-long-term')
+        access_key_id: The access key ID being deactivated
+        secret_access_key: The secret access key being deactivated
+    """
+    logger.debug(f"Backing up deactivated key {access_key_id[:8]}... for profile {profile}")
+    
+    # Load or create the deactivated keys file
+    deactivated = configparser.ConfigParser()
+    if AWS_DEACTIVATED_KEYS_FILE.exists():
+        deactivated.read(AWS_DEACTIVATED_KEYS_FILE)
+    
+    # Create a unique section name with timestamp
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    section_name = f"{profile}_deactivated_{timestamp}"
+    
+    deactivated.add_section(section_name)
+    deactivated.set(section_name, 'aws_access_key_id', access_key_id)
+    deactivated.set(section_name, 'aws_secret_access_key', secret_access_key)
+    deactivated.set(section_name, 'deactivated_at', datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC'))
+    deactivated.set(section_name, 'original_profile', profile)
+    
+    with open(AWS_DEACTIVATED_KEYS_FILE, 'w') as f:
+        deactivated.write(f)
+    
+    # Set restrictive permissions on the backup file (600 - owner read/write only)
+    try:
+        os.chmod(AWS_DEACTIVATED_KEYS_FILE, 0o600)
+    except Exception as e:
+        logger.debug(f"Could not set permissions on {AWS_DEACTIVATED_KEYS_FILE}: {e}")
+    
+    logger.info(f"Backed up deactivated key {access_key_id} to {AWS_DEACTIVATED_KEYS_FILE}")
+
+
+def rotate_access_key(iam_client, long_term_profile: str, old_access_key_id: str) -> bool:
+    """Rotate an access key by creating a new one, updating credentials, and deactivating the old one.
+    
+    Args:
+        iam_client: Authenticated IAM client (using MFA session)
+        long_term_profile: The long-term profile name (e.g., 'prod-long-term')
+        old_access_key_id: The current access key ID to be rotated
+    
+    Returns:
+        True if rotation was successful, False otherwise
+    """
+    display_name = get_display_name(long_term_profile)
+    logger.info(f"Starting key rotation for profile {long_term_profile}")
+    
+    try:
+        # Step 1: Get the current secret key for backup before creating new key
+        credentials = load_credentials()
+        old_secret_key = credentials.get(long_term_profile, 'aws_secret_access_key', fallback='')
+        
+        # Also preserve mfa_serial/aws_mfa_device if present
+        mfa_serial = None
+        for key in ['mfa_serial', 'aws_mfa_device']:
+            if credentials.has_option(long_term_profile, key):
+                mfa_serial = (key, credentials.get(long_term_profile, key))
+                break
+        
+        # Step 2: Create new access key
+        print_info("Creating new access key...")
+        response = iam_client.create_access_key()
+        new_key = response['AccessKey']
+        new_access_key_id = new_key['AccessKeyId']
+        new_secret_key = new_key['SecretAccessKey']
+        
+        logger.info(f"Created new access key {new_access_key_id[:8]}...")
+        print_success(f"New access key created: {new_access_key_id}")
+        
+        # Step 3: Backup the old key
+        print_info("Backing up old key to credentials.deactivated...")
+        backup_deactivated_key(long_term_profile, old_access_key_id, old_secret_key)
+        print_success(f"Old key backed up to {AWS_DEACTIVATED_KEYS_FILE}")
+        
+        # Step 4: Update credentials file with new key
+        print_info("Updating credentials file with new key...")
+        credentials = load_credentials()  # Reload to get fresh state
+        
+        if not credentials.has_section(long_term_profile):
+            credentials.add_section(long_term_profile)
+        
+        credentials.set(long_term_profile, 'aws_access_key_id', new_access_key_id)
+        credentials.set(long_term_profile, 'aws_secret_access_key', new_secret_key)
+        
+        # Preserve mfa_serial/aws_mfa_device
+        if mfa_serial:
+            credentials.set(long_term_profile, mfa_serial[0], mfa_serial[1])
+        
+        save_credentials(credentials)
+        print_success(f"Credentials file updated for profile '{display_name}'")
+        logger.info(f"Updated credentials file with new key {new_access_key_id[:8]}...")
+        
+        # Step 5: Deactivate the old key
+        print_info("Deactivating old access key...")
+        iam_client.update_access_key(AccessKeyId=old_access_key_id, Status='Inactive')
+        print_success(f"Old key {old_access_key_id} has been deactivated")
+        logger.info(f"Deactivated old access key {old_access_key_id}")
+        
+        print("")
+        print_success(f"Key rotation complete for '{display_name}'!")
+        print_info(f"New key: {new_access_key_id}")
+        print_info(f"Old key: {old_access_key_id} (deactivated, backed up)")
+        
+        return True
+        
+    except ClientError as e:
+        error_code = e.response['Error']['Code']
+        error_msg = e.response['Error']['Message']
+        
+        if error_code == 'LimitExceeded':
+            print_error(f"Cannot create new key: AWS limit of 2 keys per user reached.")
+            print_error("Please delete an existing inactive key first.")
+        else:
+            print_error(f"AWS Error during key rotation: {error_code} - {error_msg}")
+        
+        logger.error(f"Key rotation failed: {error_code} - {error_msg}")
+        return False
+        
+    except Exception as e:
+        print_error(f"Key rotation failed: {e}")
+        logger.error(f"Key rotation failed: {e}")
+        return False
+
+
+def offer_key_rotation(iam_client, long_term_profile: str, access_key_id: str, age_days: int) -> bool:
+    """Offer the user the option to rotate an expired or expiring key.
+    
+    Args:
+        iam_client: Authenticated IAM client (using MFA session)
+        long_term_profile: The long-term profile name (e.g., 'prod-long-term')
+        access_key_id: The current access key ID
+        age_days: The age of the key in days
+    
+    Returns:
+        True if rotation was performed successfully, False otherwise
+    """
+    display_name = get_display_name(long_term_profile)
+    
+    print("")
+    print(f"{Colors.YELLOW}{Colors.BOLD}═══════════════════════════════════════════════════════════{Colors.ENDC}")
+    print(f"{Colors.YELLOW}{Colors.BOLD}  KEY ROTATION AVAILABLE{Colors.ENDC}")
+    print(f"{Colors.YELLOW}{Colors.BOLD}═══════════════════════════════════════════════════════════{Colors.ENDC}")
+    print("")
+    print(f"  Profile: {display_name}")
+    print(f"  Current key: {access_key_id}")
+    print(f"  Key age: {age_days} days (limit: {AWS_KEY_EXPIRATION_DAYS} days)")
+    print("")
+    print("  This will:")
+    print(f"    1. Create a new access key")
+    print(f"    2. Update ~/.aws/credentials with the new key")
+    print(f"    3. Deactivate the old key")
+    print(f"    4. Backup the old key to ~/.aws/credentials.deactivated")
+    print("")
+    
+    try:
+        response = input(f"  {Colors.YELLOW}Do you want to rotate this key? (yes/no): {Colors.ENDC}").strip().lower()
+        
+        if response in ('yes', 'y'):
+            print("")
+            return rotate_access_key(iam_client, long_term_profile, access_key_id)
+        else:
+            print_info("Key rotation skipped.")
+            return False
+            
+    except KeyboardInterrupt:
+        print("")
+        print_info("Key rotation cancelled.")
+        return False
+
+
 def check_key_age(credentials_data: Dict, long_term_profile: str) -> Optional[int]:
     """Check the age of the access key for a profile.
     
@@ -310,8 +485,12 @@ def check_key_age(credentials_data: Dict, long_term_profile: str) -> Optional[in
                 # Display the key age with rotation warning
                 if age_days >= AWS_KEY_EXPIRATION_DAYS:
                     print_warning(f"Access key age: {age_days} days - KEY ROTATION REQUIRED (exceeded {AWS_KEY_EXPIRATION_DAYS} days)")
+                    # Offer key rotation for expired keys
+                    offer_key_rotation(iam, long_term_profile, access_key_id, age_days)
                 elif days_until_expiration <= 30:
                     print_warning(f"Access key age: {age_days} days - KEY ROTATION RECOMMENDED (expires in {days_until_expiration} days)")
+                    # Offer key rotation for keys expiring soon
+                    offer_key_rotation(iam, long_term_profile, access_key_id, age_days)
                 else:
                     print_info(f"Access key age: {age_days} days")
                 

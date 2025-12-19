@@ -14,6 +14,7 @@ A cross-platform Python CLI tool that simplifies managing MFA authentication acr
 - 🐛 **Debug mode** - Verbose output for troubleshooting with `--debug`
 - 🔧 **Environment file support** - Load credentials from `.env` file via python-dotenv
 - 🔑 **Key age monitoring** - Displays access key age and warns when rotation is needed
+- 🔄 **Automatic key rotation** - Offers to create new keys, update credentials, and deactivate old keys
 - 🗑️ **Key management** - Interactive prompts to deactivate or delete extra access keys
 - 👤 **User info display** - Shows IAM username and account ID after successful login
 
@@ -244,6 +245,68 @@ If the key has **exceeded the threshold**:
 ⚠ Access key age: 412 days - KEY ROTATION REQUIRED (exceeded 365 days)
 ```
 
+### Automatic Key Rotation
+
+When a key is expired or expiring soon, the script offers to automatically rotate it:
+
+```
+⚠ Access key age: 412 days - KEY ROTATION REQUIRED (exceeded 365 days)
+
+═══════════════════════════════════════════════════════════
+  KEY ROTATION AVAILABLE
+═══════════════════════════════════════════════════════════
+
+  Profile: prod
+  Current key: AKIAIOSFODNN7EXAMPLE
+  Key age: 412 days (limit: 365 days)
+
+  This will:
+    1. Create a new access key
+    2. Update ~/.aws/credentials with the new key
+    3. Deactivate the old key
+    4. Backup the old key to ~/.aws/credentials.deactivated
+
+  Do you want to rotate this key? (yes/no): yes
+
+ℹ Creating new access key...
+✓ New access key created: AKIAI44QH8DHBEXAMPLE
+ℹ Backing up old key to credentials.deactivated...
+✓ Old key backed up to /Users/you/.aws/credentials.deactivated
+ℹ Updating credentials file with new key...
+✓ Credentials file updated for profile 'prod'
+ℹ Deactivating old access key...
+✓ Old key AKIAIOSFODNN7EXAMPLE has been deactivated
+
+✓ Key rotation complete for 'prod'!
+ℹ New key: AKIAI44QH8DHBEXAMPLE
+ℹ Old key: AKIAIOSFODNN7EXAMPLE (deactivated, backed up)
+```
+
+**What happens during rotation:**
+
+1. **New key created** - A new access key is generated via IAM
+2. **Credentials updated** - `~/.aws/credentials` is updated with the new key (MFA serial preserved)
+3. **Old key deactivated** - The previous key is set to Inactive status (not deleted)
+4. **Backup created** - The old credentials are saved to `~/.aws/credentials.deactivated` with:
+   - Timestamped section name for history tracking
+   - Original profile name and deactivation timestamp
+   - File permissions set to 600 (owner read/write only)
+
+**Example backup file** (`~/.aws/credentials.deactivated`):
+
+```ini
+[prod-long-term_deactivated_20251219_143052]
+aws_access_key_id = AKIAIOSFODNN7EXAMPLE
+aws_secret_access_key = wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY
+deactivated_at = 2025-12-19 14:30:52 UTC
+original_profile = prod-long-term
+```
+
+**Note:** The old key is only deactivated, not deleted. This allows you to:
+- Revert if something goes wrong (reactivate via AWS Console)
+- Have a recovery option if the new key has issues
+- Permanently delete old keys at your convenience
+
 **Multiple keys warning** - If more than one access key exists, the script offers to manage them:
 
 ```
@@ -288,6 +351,12 @@ The script provides several security warnings to help you maintain AWS security 
 - **AWS best practice**: AWS recommends rotating keys every 90 days for sensitive environments
 
 **How to rotate:**
+
+**Option 1: Automatic (recommended)** - Use this tool's built-in rotation feature:
+- When a key is expired/expiring, the tool will offer to rotate it automatically
+- This creates a new key, updates credentials, deactivates the old key, and creates a backup
+
+**Option 2: Manual** - Rotate via AWS Console:
 1. Create a new access key in AWS Console → IAM → Users → Security credentials
 2. Update your `~/.aws/credentials` file with the new key
 3. Test that the new key works
@@ -465,7 +534,7 @@ Examples:
 4. **MFA Lookup**: Reads MFA device ARN from local config/credentials files only (no AWS API calls)
 5. **Authentication**: Prompts for MFA token and calls `sts:GetSessionToken`
 6. **Storage**: Saves temporary credentials under the short profile name (e.g., `[prod]`)
-7. **Post-auth checks**: Displays user info, key age, and offers to manage extra keys (using MFA session)
+7. **Post-auth checks**: Displays user info, key age, offers key rotation if needed, and manages extra keys (using MFA session)
 
 ### Profile Naming Convention
 
