@@ -199,6 +199,7 @@ AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY
 AWS_DEFAULT_REGION=us-east-1
 AWS_MFA_SERIAL=arn:aws:iam::123456789012:mfa/username
 AWS_KEY_EXPIRATION_DAYS=365
+AWS_KEY_WARNING_DAYS=30
 ```
 
 > **Note**: The `.env` file is automatically ignored by git. Never commit credentials to version control.
@@ -324,11 +325,14 @@ original_profile = prod-long-term
 ✓ Key AKIAI44QH8DHBEXAMPLE has been deleted.
 ```
 
-**Configure the threshold** via environment variable or `.env` file:
+**Configure the thresholds** via environment variable or `.env` file:
 
 ```bash
-# Default is 365 days
+# Key expiration threshold (default: 365 days)
 export AWS_KEY_EXPIRATION_DAYS=180
+
+# Warning threshold - days before expiration to start warning (default: 30 days)
+export AWS_KEY_WARNING_DAYS=30
 ```
 
 ### Security Warnings Explained

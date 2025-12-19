@@ -39,7 +39,8 @@ AWS_DEACTIVATED_KEYS_FILE = Path.home() / ".aws" / "credentials.deactivated"
 LONG_TERM_SUFFIX = "-long-term"
 DEFAULT_SESSION_DURATION = 43200  # 12 hours
 OUTPUT_DIR = Path(__file__).parent / "output"
-AWS_KEY_EXPIRATION_DAYS = int(os.environ.get('AWS_KEY_EXPIRATION_DAYS', 365))
+AWS_KEY_EXPIRATION_DAYS = int(os.environ.get('AWS_KEY_EXPIRATION_DAYS', 180))
+AWS_KEY_WARNING_DAYS = int(os.environ.get('AWS_KEY_WARNING_DAYS', 30))
 MFA_TOKEN_LENGTH = 6  # Standard MFA token length
 MFA_MAX_ATTEMPTS = 3  # Maximum retry attempts for MFA authentication
 
@@ -487,7 +488,7 @@ def check_key_age(credentials_data: Dict, long_term_profile: str) -> Optional[in
                     print_warning(f"Access key age: {age_days} days - KEY ROTATION REQUIRED (exceeded {AWS_KEY_EXPIRATION_DAYS} days)")
                     # Offer key rotation for expired keys
                     offer_key_rotation(iam, long_term_profile, access_key_id, age_days)
-                elif days_until_expiration <= 30:
+                elif days_until_expiration <= AWS_KEY_WARNING_DAYS:
                     print_warning(f"Access key age: {age_days} days - KEY ROTATION RECOMMENDED (expires in {days_until_expiration} days)")
                     # Offer key rotation for keys expiring soon
                     offer_key_rotation(iam, long_term_profile, access_key_id, age_days)
