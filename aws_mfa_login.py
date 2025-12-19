@@ -18,6 +18,7 @@ from typing import Dict, List, Optional, Tuple
 
 try:
     import boto3
+    from botocore.config import Config
     from botocore.exceptions import ClientError, NoCredentialsError
 except ImportError:
     print("Error: boto3 is required. Install with: pip3 install boto3")
@@ -43,6 +44,9 @@ AWS_KEY_EXPIRATION_DAYS = int(os.environ.get('AWS_KEY_EXPIRATION_DAYS', 180))
 AWS_KEY_WARNING_DAYS = int(os.environ.get('AWS_KEY_WARNING_DAYS', 30))
 MFA_TOKEN_LENGTH = 6  # Standard MFA token length
 MFA_MAX_ATTEMPTS = 3  # Maximum retry attempts for MFA authentication
+
+# Custom User-Agent suffix for AWS API calls
+BOTO_CONFIG = Config(user_agent_extra='aws-mfa-login/1.0')
 
 
 def get_display_name(profile: str) -> str:
@@ -396,7 +400,7 @@ def check_key_age(credentials_data: Dict, long_term_profile: str) -> Optional[in
             aws_secret_access_key=credentials_data['SecretAccessKey'],
             aws_session_token=credentials_data['SessionToken']
         )
-        iam = session.client('iam')
+        iam = session.client('iam', config=BOTO_CONFIG)
         
         # Get the access key ID from the long-term credentials file
         credentials = load_credentials()
@@ -523,7 +527,7 @@ def display_session_info(credentials_data: Dict):
             aws_secret_access_key=credentials_data['SecretAccessKey'],
             aws_session_token=credentials_data['SessionToken']
         )
-        sts = session.client('sts')
+        sts = session.client('sts', config=BOTO_CONFIG)
         
         identity = sts.get_caller_identity()
         account_id = identity.get('Account', 'Unknown')
@@ -599,7 +603,7 @@ def get_session_token(profile: str, mfa_serial: str, mfa_token: str,
     logger.debug(f"Requesting session token for profile={profile}, mfa_serial={mfa_serial}, duration={duration}s")
     try:
         session = boto3.Session(profile_name=profile)
-        sts = session.client('sts')
+        sts = session.client('sts', config=BOTO_CONFIG)
         
         response = sts.get_session_token(
             DurationSeconds=duration,
