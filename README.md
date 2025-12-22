@@ -12,7 +12,6 @@ A cross-platform Python CLI tool that simplifies managing MFA authentication acr
 - ⚡ **Fast** - Only prompts for MFA when actually needed
 - 📝 **Logging** - Automatic logging to `output/` directory with daily log files
 - 🐛 **Debug mode** - Verbose output for troubleshooting with `--debug`
-- 🔧 **Environment file support** - Load credentials from `.env` file via python-dotenv
 - 🔑 **Key age monitoring** - Displays access key age and warns when rotation is needed
 - 🔄 **Automatic key rotation** - Offers to create new keys, update credentials, and deactivate old keys
 - 🗑️ **Key management** - Interactive prompts to deactivate or delete extra access keys
@@ -23,7 +22,6 @@ A cross-platform Python CLI tool that simplifies managing MFA authentication acr
 - Python 3.7+
 - macOS, Linux, or Windows
 - boto3
-- python-dotenv (optional, for `.env` file support)
 
 ## Installation
 
@@ -188,42 +186,6 @@ If not found, you'll be prompted to enter it manually.
 
 > **Security note**: The script does NOT query AWS APIs before MFA authentication to avoid generating CloudTrail events with long-term credentials. All AWS API calls are made only after successful MFA login using the temporary session.
 
-### Environment File (Optional)
-
-You can also load AWS credentials from a `.env` file in the current directory. Copy `.env.example` to `.env` and configure:
-
-```ini
-# .env
-AWS_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE
-AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY
-AWS_DEFAULT_REGION=us-east-1
-AWS_MFA_SERIAL=arn:aws:iam::123456789012:mfa/username
-AWS_KEY_EXPIRATION_DAYS=365
-AWS_KEY_WARNING_DAYS=30
-```
-
-> **Note**: The `.env` file is automatically ignored by git. Never commit credentials to version control.
-
-#### .env vs ~/.aws/credentials
-
-| Feature | `.env` file | `~/.aws/credentials` |
-|---------|-------------|---------------------|
-| Multiple profiles | ❌ No (single credential only) | ✅ Yes |
-| Project-specific | ✅ Yes (per directory) | ❌ No (global) |
-| AWS standard | ❌ No | ✅ Yes |
-
-**When to use `.env`:**
-- Single default credential for a specific project
-- Overriding region or other settings per project
-- Quick testing without modifying global AWS config
-
-**When to use `~/.aws/credentials`:**
-- Managing multiple AWS accounts/profiles
-- Standard AWS CLI workflow
-- Using this tool's multi-profile authentication features
-
-**For multiple profiles**, always use `~/.aws/credentials` - it's the AWS standard and supports the full functionality of this tool. The `.env` file is best suited for project-specific overrides or single-credential scenarios.
-
 ### Access Key Rotation Reminder
 
 After successful authentication, the script displays your access key age and warns when rotation is needed:
@@ -325,7 +287,7 @@ original_profile = prod-long-term
 ✓ Key AKIAI44QH8DHBEXAMPLE has been deleted.
 ```
 
-**Configure the thresholds** via environment variable or `.env` file:
+**Configure the thresholds** via environment variables:
 
 ```bash
 # Key expiration threshold (default: 365 days)

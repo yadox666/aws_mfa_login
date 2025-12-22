@@ -24,16 +24,6 @@ except ImportError:
     print("Error: boto3 is required. Install with: pip3 install boto3")
     sys.exit(1)
 
-# Load environment variables from .env file if present
-try:
-    from dotenv import load_dotenv
-    env_file = Path.cwd() / ".env"
-    if env_file.exists():
-        load_dotenv(env_file)
-except ImportError:
-    pass  # dotenv is optional
-
-
 AWS_CREDENTIALS_FILE = Path.home() / ".aws" / "credentials"
 AWS_CONFIG_FILE = Path.home() / ".aws" / "config"
 AWS_DEACTIVATED_KEYS_FILE = Path.home() / ".aws" / "credentials.deactivated"
@@ -645,7 +635,9 @@ def save_mfa_credentials(profile: str, credentials_data: Dict):
     
     credentials.set(mfa_profile, 'aws_access_key_id', credentials_data['AccessKeyId'])
     credentials.set(mfa_profile, 'aws_secret_access_key', credentials_data['SecretAccessKey'])
+    # Set both modern and legacy token fields for compatibility with all tools
     credentials.set(mfa_profile, 'aws_session_token', credentials_data['SessionToken'])
+    credentials.set(mfa_profile, 'aws_security_token', credentials_data['SessionToken'])
     # Use aws-mfa compatible format: YYYY-MM-DD HH:MM:SS
     expiration_utc = credentials_data['Expiration'].astimezone(timezone.utc)
     credentials.set(mfa_profile, 'expiration', expiration_utc.strftime('%Y-%m-%d %H:%M:%S'))
